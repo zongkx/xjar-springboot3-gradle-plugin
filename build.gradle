@@ -1,0 +1,135 @@
+import java.util.jar.*
+import java.util.zip.*
+
+
+ plugins {
+    id 'java'
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+    id 'com.gradle.plugin-publish' version '1.2.1'
+}
+
+group 'io.github.zongkx'
+version '1.5-SNAPSHOT'
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+}
+
+tasks.withType(Javadoc).configureEach {
+    enabled = false
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+repositories {
+    mavenLocal()
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.apache.commons:commons-compress:1.19'
+    implementation 'org.ow2.asm:asm:9.7'
+    implementation 'com.github.core-lib:loadkit:v1.0.1'
+    implementation 'org.springframework.boot:spring-boot-loader:3.3.2'
+}
+
+
+
+gradlePlugin {
+    website = 'https://github.com/zongkx/xjar-springboot3-gradle-plugin'
+    vcsUrl = 'https://github.com/zongkx/xjar-springboot3-gradle-plugin.git'
+
+    plugins {
+        xjarPlugin {
+            id = 'io.github.zongkx.xjar-springboot3'
+            implementationClass = 'io.github.zongkx.XjarPlugin'
+            displayName = 'Xjar SpringBoot3 Gradle Plugin'
+            description = 'Provide Gradle 8+ support for xjar springboot3'
+            tags = ['xjar', 'springboot3']
+        }
+    }
+}
+
+task sourcesJar(type: Jar) {
+    archiveClassifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+
+import java.util.jar.Attributes
+
+// 1. 声明独立的依赖配置桶
+configurations {
+    // 创建一个可用于解析下载依赖的子配置
+    xjarCliRuntime {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+}
+
+dependencies {
+    // 💡 灌入你需要打进去的核心依赖包
+    xjarCliRuntime 'org.apache.commons:commons-compress:1.26.1'
+    xjarCliRuntime 'org.ow2.asm:asm:9.7'
+    xjarCliRuntime 'com.github.core-lib:loadkit:v1.0.1'
+    xjarCliRuntime 'org.springframework.boot:spring-boot-loader:3.3.2'
+    // 插件自身的常规依赖
+    implementation gradleApi()
+}
+// 2. 纯净构建：单独为 cli 生成一个胖包，丢到 build/tmp 里
+def makeCliTask = tasks.register('buildXjarCli', Jar) {
+    group = 'build setup'
+    description = '使用原生 Jar 任务在 tmp 中构建包含完整依赖的 xjar-cli'
+
+    // 💡 核心修复：显式指定重复文件的处理策略为“忽略重复”，解决 LICENSE.txt 冲突
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // 指定输出的文件名和放入的临时目录
+    archiveFileName.set('xjar-cli.jar')
+    destinationDirectory.set(file("${layout.buildDirectory.get().asFile}/tmp/xjar-core"))
+
+    // 设置 cli.jar 的启动主类
+    manifest {
+        attributes('Main-Class': 'io.xjar.XJarMain')
+    }
+
+    // A. 核心：只吃插件自身的编译输出（天然包含了 classes 和 src/main/resources 里的所有资源）
+    from sourceSets.main.output
+
+    // B. 核心：延迟解析并“完整解压合并”上面 xjarCliRuntime 里的所有依赖及传递依赖
+    from({
+        project.configurations.xjarCliRuntime.incoming.files.collect { file ->
+            if (file.isDirectory()) {
+                return file
+            } else if (file.name.endsWith(".jar")) {
+                return zipTree(file)
+            }
+            return file
+        }
+    }) {
+        // 排除掉依赖包里的签名文件和清单文件，防止破坏外壳 jar 的合法性
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+    }
+
+    // 排除掉不该属于 cli 内部的插件自身元数据
+    exclude 'META-INF/gradle-plugins/**'
+}
+
+// 3. 最终装配：把 tmp 里打好的纯净 xjar-cli.jar，直接塞进主插件包的 xjar-core/ 目录下
+jar {
+    // 强依赖上面的生成任务
+    dependsOn makeCliTask
+
+    // 将 build/tmp/xjar-core/xjar-cli.jar 挂载进主 jar 的 xjar-core 目录
+    from(makeCliTask.map { it.outputs.files.singleFile }) {
+        into 'xjar-core'
+    }
+}
+publishing {
+    repositories {
+    }
+}

@@ -1,13 +1,2 @@
 //
 rootProject.name = 'xjar-springboot3-gradle-plugin'
-
-repositories {
-    // 1. 优先使用国内镜像加速
-    maven { url 'https://maven.aliyun.com/repository/public' }
-
-    // 2. 必须包含 Maven 中央仓库
-    mavenCentral()
-
-    // 💡 核心修复：添加 JitPack 仓库，xjar 相关的很多老旧底层依赖（如 core-lib 系列）托管在这里
-    maven { url 'https://jitpack.io' }
-}

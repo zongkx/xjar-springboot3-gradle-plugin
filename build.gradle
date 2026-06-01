@@ -19,11 +19,12 @@ tasks.withType(Javadoc).configureEach {
     options.addStringOption('Xdoclint:none', '-quiet')
 }
 
-repositories {
-    mavenLocal()
-    maven { url 'https://maven.aliyun.com/repository/public' }
-    mavenCentral()
-}
+// 1. 如果你的插件需要依赖 JitPack 的包作为“构建插件本身”的依赖
+ repositories {
+     maven { url 'https://maven.aliyun.com/repository/public' }
+     mavenCentral()
+     maven { url 'https://jitpack.io' } // 💡 确保在这里
+ }
 
 dependencies {
     implementation 'org.apache.commons:commons-compress:1.19'
